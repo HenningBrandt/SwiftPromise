@@ -28,7 +28,7 @@ import Foundation
  Bind-Operator.
  Operator for Promises flatMap.
 */
-public func >>=<T,R>(p: Promise<T>, f: T -> Promise<R>) -> Promise<R> {
+public func >>=<T,R>(p: Promise<T>, f: (T) -> Promise<R>) -> Promise<R> {
     return p.flatMap(f: f)
 }
 
@@ -45,7 +45,7 @@ public class Promise<T> {
         The future block or any method dealing with the promise result is executed in an execution enviroment.
         This enviroment or context is a dispatch queue on which the corresponding computations are performed
      */
-    public typealias ExecutionContext = dispatch_queue_t
+    public typealias ExecutionContext = DispatchQueue
 
 	/**
         A block of work that can be performed in the background.
@@ -58,7 +58,7 @@ public class Promise<T> {
         A unit of work. It consists of the execution context on which it should be performed and
         the task itself doing the work with the result of the fulfilled promise.
 	*/
-    private typealias DeliverBlock = (ExecutionContext, Either<T> -> ())
+    private typealias DeliverBlock = (ExecutionContext, (Either<T>) -> ())
 	
     /**
         The internal result holding the promises value and any callbacks.
@@ -79,7 +79,7 @@ public class Promise<T> {
         - a promises value can only be set once and after that can never change.
         - any callback scheduled before or after setting the promises value is guaranteed to be invoked with the result
      */
-    private let fulfillSemaphore = dispatch_semaphore_create(1)
+    private let fulfillSemaphore = DispatchSemaphore(value: 1)
 	
     /**
         The default execution context used for the background task the promise was initialized with and
@@ -112,12 +112,12 @@ public class Promise<T> {
     public init(_ executionContext: ExecutionContext = ExecutionContextConstant.DefaultContext, task: BackgroundTask) {
         self.defaultExecutionContext = executionContext
 		
-        dispatch_async(self.defaultExecutionContext) {
+        self.defaultExecutionContext.async {
             do {
                 let result = try task()
-                self.fulfill(.Result(result))
+                self.fulfill(.result(result))
             } catch let error {
-                self.fulfill(.Failure(error))
+                self.fulfill(.failure(error))
             }
         }
     }
@@ -135,7 +135,7 @@ public class Promise<T> {
     */
 	public init(_ executionContext: ExecutionContext = ExecutionContextConstant.MainContext, value: T) {
 		self.defaultExecutionContext = executionContext
-		self.fulfill(.Result(value))
+		self.fulfill(.result(value))
 	}
 	
     /**
@@ -170,9 +170,9 @@ public class Promise<T> {
      - parameter value: The value to set on the _Promise_. This can either be a result or a failure.
                         See `Either` for this.
     */
-	public func fulfill(value: Either<T>) {
-		dispatch_semaphore_wait(self.fulfillSemaphore, DISPATCH_TIME_FOREVER)
-        defer { dispatch_semaphore_signal(self.fulfillSemaphore) }
+	public func fulfill(_ value: Either<T>) {
+		self.fulfillSemaphore.wait()
+        defer { self.fulfillSemaphore.signal() }
         
         let (internalResult, blocks) = self.internalValue
         guard internalResult == nil else { return }
@@ -187,8 +187,8 @@ public class Promise<T> {
      - returns: true if promise is fulfilled otherwise false
     */
     public func isFulfilled() -> Bool {
-        dispatch_semaphore_wait(self.fulfillSemaphore, DISPATCH_TIME_FOREVER)
-        defer { dispatch_semaphore_signal(self.fulfillSemaphore) }
+        self.fulfillSemaphore.wait()
+        defer { self.fulfillSemaphore.signal() }
         
         let (internalResult, _) = self.internalValue
         return internalResult != nil
@@ -203,8 +203,8 @@ public class Promise<T> {
      - returns: An Either with the Promises result/error or nil if the Promise is not fulfilled yet
     */
     public func value() -> Either<T>? {
-        dispatch_semaphore_wait(self.fulfillSemaphore, DISPATCH_TIME_FOREVER)
-        defer { dispatch_semaphore_signal(self.fulfillSemaphore) }
+        self.fulfillSemaphore.wait()
+        defer { self.fulfillSemaphore.signal() }
         
         let (internalResult, _) = self.internalValue
         return internalResult
@@ -217,8 +217,8 @@ public class Promise<T> {
                 or is fulfilled with an error.
     */
     public func result() -> T? {
-        dispatch_semaphore_wait(self.fulfillSemaphore, DISPATCH_TIME_FOREVER)
-        defer { dispatch_semaphore_signal(self.fulfillSemaphore) }
+        self.fulfillSemaphore.wait()
+        defer { self.fulfillSemaphore.signal() }
         
         let (internalResult, _) = self.internalValue
         guard let result = internalResult else {
@@ -226,9 +226,9 @@ public class Promise<T> {
         }
         
         switch result {
-        case .Result(let r):
+        case .result(let r):
             return r
-        case .Failure:
+        case .failure:
             return nil
         }
     }
@@ -239,9 +239,9 @@ public class Promise<T> {
      - returns: The Promises error if there is one or nil if the Promise is not fulfilled yet
                 or is fulfilled with a result.
      */
-    public func error() -> ErrorType? {
-        dispatch_semaphore_wait(self.fulfillSemaphore, DISPATCH_TIME_FOREVER)
-        defer { dispatch_semaphore_signal(self.fulfillSemaphore) }
+    public func error() -> ErrorProtocol? {
+        self.fulfillSemaphore.wait()
+        defer { self.fulfillSemaphore.signal() }
         
         let (internalResult, _) = self.internalValue
         guard let result = internalResult else {
@@ -249,9 +249,9 @@ public class Promise<T> {
         }
         
         switch result {
-        case .Result:
+        case .result:
             return nil
-        case .Failure(let error):
+        case .failure(let error):
             return error
         }
     }
@@ -264,7 +264,8 @@ public class Promise<T> {
      - parameter context: dispatch_queue on which to perform the block. Default is the main queue.
      - parameter f: The block scheduled for fulfillment. Takes the value of the Promise as argument.
     */
-	public func onComplete(context: ExecutionContext = ExecutionContextConstant.MainContext, f: Either<T> -> ()) -> Promise<T> {
+    @discardableResult
+	public func onComplete(_ context: ExecutionContext = ExecutionContextConstant.MainContext, f: (Either<T>) -> ()) -> Promise<T> {
 		self.enqueueDeliverBlock({ f($0) }, context)
 		return self
 	}
@@ -277,12 +278,13 @@ public class Promise<T> {
      - parameter context: dispatch_queue on which to perform the block. Default is the main queue.
      - parameter f: The block scheduled for fulfillment. Takes the result of the Promise as argument.
      */
-	public func onSuccess(context: ExecutionContext = ExecutionContextConstant.MainContext, f: (T) -> ()) -> Promise<T> {
+    @discardableResult
+	public func onSuccess(_ context: ExecutionContext = ExecutionContextConstant.MainContext, f: (T) -> ()) -> Promise<T> {
 		self.enqueueDeliverBlock({
 			switch $0 {
-			case .Result(let result):
+			case .result(let result):
                 f(result)
-			case .Failure:
+			case .failure:
                 break
 			}
         }, context)
@@ -299,12 +301,13 @@ public class Promise<T> {
      - parameter f: The block scheduled for fulfillment. Takes the value of the Promise as argument.
                     Can throw an error wich will be carried up the Promise chain.
      */
-	public func onFailure(context: ExecutionContext = ExecutionContextConstant.MainContext, f: ErrorType -> ()) -> Promise<T> {
+    @discardableResult
+	public func onFailure(_ context: ExecutionContext = ExecutionContextConstant.MainContext, f: (ErrorProtocol) -> ()) -> Promise<T> {
 		self.enqueueDeliverBlock({
 			switch $0 {
-			case .Result:
+			case .result:
                 break
-			case .Failure(let error):
+			case .failure(let error):
                 f(error)
 			}
         }, context)
@@ -324,19 +327,19 @@ public class Promise<T> {
      
      - returns: A Promise wrapping the value produced by f
      */
-	public func map<R>(context: ExecutionContext = ExecutionContextConstant.PlaceHolderContext, f: T throws -> R) -> Promise<R> {
+	public func map<R>(_ context: ExecutionContext = ExecutionContextConstant.PlaceHolderContext, f: (T) throws -> R) -> Promise<R> {
 		let promise = Promise<R>(self.validContext(context))
 		
 		self.enqueueDeliverBlock({
 			switch $0 {
-			case .Failure(let error):
-                promise.fulfill(.Failure(error))
-			case .Result(let result):
+			case .failure(let error):
+                promise.fulfill(.failure(error))
+			case .result(let result):
 				do {
 					let mappedResult = try f(result)
-					promise.fulfill(.Result(mappedResult))
+					promise.fulfill(.result(mappedResult))
 				} catch let error {
-					promise.fulfill(.Failure(error))
+					promise.fulfill(.failure(error))
 				}
 			}
         }, context)
@@ -360,15 +363,15 @@ public class Promise<T> {
      
      - returns: The Promise produced by f
     */
-	public func flatMap<R>(context: ExecutionContext = ExecutionContextConstant.PlaceHolderContext, f: T throws -> Promise<R>) -> Promise<R> {
+	public func flatMap<R>(_ context: ExecutionContext = ExecutionContextConstant.PlaceHolderContext, f: (T) throws -> Promise<R>) -> Promise<R> {
 		let ctx = self.validContext(context)
 		let placeholder = Promise<R>(ctx)
 		
 		self.enqueueDeliverBlock({
 			switch $0 {
-			case .Failure(let error):
-				placeholder.fulfill(.Failure(error))
-			case .Result(let result):
+			case .failure(let error):
+				placeholder.fulfill(.failure(error))
+			case .result(let result):
 				do {
                     // The f function can't produce a Promise until the current promise is fulfilled
                     // but it is required to return a promise immediately for this reason we introduce
@@ -376,7 +379,7 @@ public class Promise<T> {
 					let promise = try f(result)
 					promise.onComplete(ctx) { placeholder.fulfill($0) }
 				} catch let error {
-					placeholder.fulfill(.Failure(error))
+					placeholder.fulfill(.failure(error))
 				}
 			}
         }, context)
@@ -384,23 +387,23 @@ public class Promise<T> {
 		return placeholder
 	}
 	
-	public func filter(context: ExecutionContext = ExecutionContextConstant.PlaceHolderContext, f: T throws -> Bool) -> Promise<T> {
+	public func filter(_ context: ExecutionContext = ExecutionContextConstant.PlaceHolderContext, f: (T) throws -> Bool) -> Promise<T> {
 		let promise = Promise<T>(self.validContext(context))
 		
 		self.enqueueDeliverBlock({
 			switch $0 {
-			case .Failure:
+			case .failure:
 				promise.fulfill($0)
-			case .Result(let result):
+			case .result(let result):
 				do {
 					let passedFilter = try f(result)
 					if passedFilter {
 						promise.fulfill($0)
 					} else {
-						promise.fulfill(.Failure(Error.FilterNotPassed))
+						promise.fulfill(.failure(Error.filterNotPassed))
 					}
 				} catch let error {
-					promise.fulfill(.Failure(error))
+					promise.fulfill(.failure(error))
 				}
 			}
         }, context)
@@ -409,8 +412,8 @@ public class Promise<T> {
 	}
     
     
-    public class func collect<R>(promises: [Promise<R>]) -> Promise<[R]> {
-        func comb(acc: Promise<[R]>, elem: Promise<R>) -> Promise<[R]> {
+    public class func collect<R>(_ promises: [Promise<R>]) -> Promise<[R]> {
+        func comb(_ acc: Promise<[R]>, elem: Promise<R>) -> Promise<[R]> {
             return elem >>= { x in
                 acc >>= { xs in
                     var _xs = xs
@@ -423,7 +426,7 @@ public class Promise<T> {
         return promises.reduce(Promise<[R]>(value: []), combine: comb)
     }
     
-    public class func select<R>(promises: [Promise<R>], context: ExecutionContext = ExecutionContextConstant.DefaultContext)
+    public class func select<R>(_ promises: [Promise<R>], context: ExecutionContext = ExecutionContextConstant.DefaultContext)
         -> Promise<(Promise<R>, [Promise<R>])>
     {
         let promise = Promise<(Promise<R>, [Promise<R>])>(context)
@@ -431,7 +434,7 @@ public class Promise<T> {
         for p in promises {
             p.onComplete { _ in
                 let result = (p, promises.filter { $0 !== p } )
-                promise.fulfill(.Result(result))
+                promise.fulfill(.result(result))
             }
         }
         
@@ -440,9 +443,9 @@ public class Promise<T> {
 }
 
 extension Promise {
-    private func enqueueDeliverBlock(block: Either<T> -> (), _ executionContext: ExecutionContext?) {
-        dispatch_semaphore_wait(self.fulfillSemaphore, DISPATCH_TIME_FOREVER)
-        defer { dispatch_semaphore_signal(self.fulfillSemaphore) }
+    private func enqueueDeliverBlock(_ block: (Either<T>) -> (), _ executionContext: ExecutionContext?) {
+        self.fulfillSemaphore.wait()
+        defer { self.fulfillSemaphore.signal() }
         
         let ctx = executionContext != nil ? executionContext! : self.defaultExecutionContext
         
@@ -455,12 +458,12 @@ extension Promise {
         }
     }
     
-    private func executeDeliverBlocks(value: Either<T>) {
+    private func executeDeliverBlocks(_ value: Either<T>) {
         var (_, deliverBlocks) = self.internalValue
         
         for deliverBlock in deliverBlocks {
             let (executionContext, block) = deliverBlock
-            dispatch_async(executionContext) {
+            executionContext.async {
                 block(value)
             }
         }
@@ -468,7 +471,7 @@ extension Promise {
         deliverBlocks.removeAll()
     }
     
-    private func validContext(context: ExecutionContext) -> ExecutionContext {
+    private func validContext(_ context: ExecutionContext) -> ExecutionContext {
         guard context.isEqual(ExecutionContextConstant.PlaceHolderContext) else {
             return self.defaultExecutionContext
         }
@@ -478,8 +481,8 @@ extension Promise {
 }
 
 private struct ExecutionContextConstant {
-	static let MainContext = dispatch_get_main_queue()
-	static let DefaultContext = dispatch_get_global_queue(Int(QOS_CLASS_DEFAULT.rawValue), 0)
-	static let PlaceHolderContext = dispatch_queue_create("com.promise.placeHolder", DISPATCH_QUEUE_CONCURRENT)
+	static let MainContext = DispatchQueue.main
+	static let DefaultContext = DispatchQueue.global(attributes: DispatchQueue.GlobalAttributes(rawValue: UInt64(Int(DispatchQueueAttributes.qosDefault.rawValue))))
+	static let PlaceHolderContext = DispatchQueue(label: "com.promise.placeHolder", attributes: DispatchQueueAttributes.concurrent)
 }
 

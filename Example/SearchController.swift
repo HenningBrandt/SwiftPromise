@@ -30,38 +30,38 @@ class SearchController: UITableViewController, UISearchResultsUpdating {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        tableView.registerClass(UITableViewCell.classForCoder(), forCellReuseIdentifier: "Cell")
+        tableView.register(UITableViewCell.classForCoder(), forCellReuseIdentifier: "Cell")
     }
     
-    override func numberOfSectionsInTableView(tableView: UITableView) -> Int {
+    override func numberOfSections(in tableView: UITableView) -> Int {
         return 1
     }
     
-    override func tableView(tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         return cities.count
     }
     
-    override func tableView(tableView: UITableView, cellForRowAtIndexPath indexPath: NSIndexPath) -> UITableViewCell {
-        return tableView.dequeueReusableCellWithIdentifier("Cell", forIndexPath: indexPath)
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        return tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
     }
     
-    override func tableView(tableView: UITableView, willDisplayCell cell: UITableViewCell, forRowAtIndexPath indexPath: NSIndexPath) {
-        let (title, _) = cities[indexPath.row]
+    override func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        let (title, _) = cities[(indexPath as NSIndexPath).row]
         cell.textLabel?.text = title
     }
     
-    override func tableView(tableView: UITableView, didSelectRowAtIndexPath indexPath: NSIndexPath) {
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         if let vc = master {
-            let (name, _) = cities[indexPath.row]
+            let (name, _) = cities[(indexPath as NSIndexPath).row]
             vc.reloadWeatherDataForCity(name)
         }
     }
     
-    func updateSearchResultsForSearchController(searchController: UISearchController) {
+    func updateSearchResults(for searchController: UISearchController) {
         if let text = searchController.searchBar.text {
-            WeatherService.citiesWithName(text).onSuccess {
+            WeatherService.fetchCities(withName: text).onSuccess {
                 let (sterm, res) = $0
-                if let t = searchController.searchBar.text where t == sterm {
+                if let t = searchController.searchBar.text, t == sterm {
                     self.cities = res
                     self.tableView.reloadData()
                 }

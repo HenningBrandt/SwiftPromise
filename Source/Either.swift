@@ -25,14 +25,14 @@
 import Foundation
 
 public enum Either<T> {
-	case Result(T)
-	case Failure(ErrorType)
+	case result(T)
+	case failure(ErrorProtocol)
 	
 	var hasResult: Bool {
 		switch self {
-		case .Result:
+		case .result:
 			return true
-		case .Failure:
+		case .failure:
 			return false
 		}
 	}
@@ -43,18 +43,18 @@ public enum Either<T> {
 	
 	var result: T? {
 		switch self {
-		case .Result(let result):
+		case .result(let result):
 			return result
-		case Failure:
+		case failure:
 			return nil
 		}
 	}
 	
-	var error: ErrorType? {
+	var error: ErrorProtocol? {
 		switch self {
-		case .Result:
+		case .result:
 			return nil
-		case Failure(let error):
+		case failure(let error):
 			return error
 		}
 	}
@@ -63,9 +63,9 @@ public enum Either<T> {
 extension Either: CustomStringConvertible {
 	public var description: String {
 		switch self {
-		case .Result:
+		case .result:
 			return "Either.Result"
-		case .Failure:
+		case .failure:
 			return "Either.Failure"
 		}
 	}
@@ -74,9 +74,9 @@ extension Either: CustomStringConvertible {
 extension Either: CustomDebugStringConvertible {
 	public var debugDescription: String {
 		switch self {
-		case .Result(let value):
+		case .result(let value):
 			return "Either.Result: \(value)"
-		case .Failure(let error):
+		case .failure(let error):
 			return "Either.Failure: \(error)"
 		}
 	}

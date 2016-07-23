@@ -24,6 +24,6 @@
 
 import Foundation
 
-public enum Error : ErrorType {
-	case FilterNotPassed
+public enum Error : ErrorProtocol {
+	case filterNotPassed
 }

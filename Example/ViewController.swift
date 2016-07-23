@@ -25,8 +25,8 @@ import UIKit
 import SwiftPromise
 
 class ViewController: UITableViewController {
-    var forecasts: [NSDictionary] = []
-    var spinner = UIActivityIndicatorView(activityIndicatorStyle: .Gray)
+    var forecasts: [Dictionary<String, AnyObject>] = []
+    var spinner = UIActivityIndicatorView(activityIndicatorStyle: .gray)
     var searchController: UISearchController!
     var currentPlace: String?
     
@@ -34,7 +34,7 @@ class ViewController: UITableViewController {
         super.viewDidLoad()
         
         refreshControl = UIRefreshControl()
-        refreshControl!.addTarget(self, action: "reload", forControlEvents: .ValueChanged)
+        refreshControl!.addTarget(self, action: #selector(ViewController.reload), for: .valueChanged)
                 
         reloadWeatherDataForCity("Berlin")
         
@@ -48,41 +48,41 @@ class ViewController: UITableViewController {
         self.tableView.tableHeaderView = self.searchController.searchBar
     }
     
-    override func numberOfSectionsInTableView(tableView: UITableView) -> Int {
+    override func numberOfSections(in tableView: UITableView) -> Int {
         return 1
     }
     
-    override func tableView(tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         return forecasts.count
     }
     
-    override func tableView(tableView: UITableView, cellForRowAtIndexPath indexPath: NSIndexPath) -> UITableViewCell {
-        return tableView.dequeueReusableCellWithIdentifier("Cell", forIndexPath: indexPath)
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        return tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
     }
     
-    override func tableView(tableView: UITableView, willDisplayCell cell: UITableViewCell, forRowAtIndexPath indexPath: NSIndexPath) {
-        let forecast = forecasts[indexPath.row]
-        if let day = forecast["day"], text = forecast["text"] {
+    override func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        let forecast = forecasts[(indexPath as NSIndexPath).row]
+        if let day = forecast["day"], let text = forecast["text"] {
             cell.textLabel?.text = day as? String
             cell.detailTextLabel?.text = text as? String
         }
     }
     
-    func reloadWeatherDataForCity(city: String) {
-        self.dismissViewControllerAnimated(true) {
+    func reloadWeatherDataForCity(_ city: String) {
+        self.dismiss(animated: true) {
             
         }
         navigationItem.titleView = spinner
         spinner.startAnimating()
         
-        WeatherService.weatherForCity(city).onSuccess { [weak self] in
+        WeatherService.fetchWeather(forCity: city).onSuccess { [weak self] in
             self?.spinner.stopAnimating()
             self?.navigationItem.titleView = nil;
             self?.refreshControl?.endRefreshing()
             
             let (title, forecast) = $0
             self?.title = title
-            self?.forecasts = forecast
+        //    self?.forecasts = forecast
             self?.tableView.reloadData()
             self?.currentPlace = city
             
